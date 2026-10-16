@@ -28,11 +28,11 @@
   <section class="card">
     <h2>② 轉換設定</h2>
     <label class="opt">
-      <input type="radio" name="mode" value="exact"> <b>版面精確（文字可編輯）</b>（外觀優先）
+      <input type="radio" name="mode" value="exact" checked> <b>版面精確（文字可編輯）</b>（外觀優先）
       <small>每行文字會依 PDF 的位置、字型、大小與顏色放入 Word，並可逐段編輯。圖片、表格線、圖形及旋轉文字會保留在頁面背景中，不能像 Word 原生物件一樣逐項編輯；因此不保證與原始 Word 的編輯方式完全相同。</small>
     </label>
     <label class="opt">
-      <input type="radio" name="mode" value="text" checked> <b>原生段落（保留行距與縮排，可自動重排）</b>
+      <input type="radio" name="mode" value="text"> <b>原生段落（保留行距與縮排，可自動重排）</b>
       <small>將 PDF 每個文字行轉成一般 Word 段落，依原行位置設定縮排與行距，並保留頁面分隔，讓初始版面更接近 PDF。文字仍可自動換行；PDF 內嵌圖片會以可移動圖片插入；圖片本身不是文字，文字與段落仍可編輯。取消「保留 PDF 原本的換行」可讓段落更自由重排。</small>
     </label>
     <label class="opt">
@@ -79,5 +79,6 @@
 <script src="app.js"></script>
 </body>
 </html>
+
 
 
