@@ -463,8 +463,6 @@
     const E = (o, k, fb) => (o && o[k] !== undefined ? o[k] : fb);
     const LINE_EXACT = E(D.LineRuleType, "EXACT", "exact");
     const HEIGHT_EXACT = E(D.HeightRule, "EXACT", "exact");
-    const ANCHOR_PAGE = E(D.FrameAnchorType, "PAGE", "page");
-    const WRAP_NONE = E(D.FrameWrap, "NONE", "none");
     const H_PAGE = E(D.HorizontalPositionRelativeFrom, "PAGE", "page");
     const V_PAGE = E(D.VerticalPositionRelativeFrom, "PAGE", "page");
     const TW_NONE = E(D.TextWrappingType, "NONE", 0);
@@ -573,7 +571,7 @@
         last = { key: key, text: text, it: it };
         runs.push(last);
       }
-      const L = Math.ceil(seg.size * 1.25 * 2) / 2;           // 行高（pt）
+      const L = Math.ceil(seg.size * 1.25 * 2) / 2;
       const base = seg.ySum / seg.n;
       const top = base - (L - seg.size * 0.2);
       const xPt = Math.max(0, seg.x);
@@ -808,4 +806,3 @@
 
   convertBtn.addEventListener("click", convert);
 })();
-
