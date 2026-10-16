@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF 轉 Word 小工具</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📄 PDF 轉 Word</h1>
+    <p>把 PDF 變成可編輯的 .docx 檔案</p>
+    <span class="badge">🔒 檔案只在你的瀏覽器處理，不會上傳</span>
+  </header>
+
+  <section class="card">
+    <h2>① 選擇 PDF 檔案</h2>
+    <div id="drop" tabindex="0">
+      <div class="icon">📂</div>
+      <div><b>拖曳 PDF 到這裡</b>，或點擊選擇檔案</div>
+      <div class="hint">僅支援 .pdf 格式</div>
+    </div>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+    <div id="fileInfo"></div>
+  </section>
+
+  <section class="card">
+    <h2>② 轉換設定</h2>
+    <label class="opt">
+      <input type="radio" name="mode" value="exact"> <b>版面精確（文字可編輯）</b>（外觀優先）
+      <small>每行文字會依 PDF 的位置、字型、大小與顏色放入 Word，並可逐段編輯。圖片、表格線、圖形及旋轉文字會保留在頁面背景中，不能像 Word 原生物件一樣逐項編輯；因此不保證與原始 Word 的編輯方式完全相同。</small>
+    </label>
+    <label class="opt">
+      <input type="radio" name="mode" value="text" checked> <b>原生段落（保留行距與縮排，可自動重排）</b>
+      <small>將 PDF 每個文字行轉成一般 Word 段落，依原行位置設定縮排與行距，並保留頁面分隔，讓初始版面更接近 PDF。文字仍可自動換行；PDF 內嵌圖片會以可移動圖片插入；圖片本身不是文字，文字與段落仍可編輯。取消「保留 PDF 原本的換行」可讓段落更自由重排。</small>
+    </label>
+    <label class="opt">
+      <input type="radio" name="mode" value="image"> <b>圖片模式</b>
+      <small>每一頁轉成圖片放進 Word，外觀與原本一致但無法編輯文字。適用掃描檔或排版複雜的 PDF。</small>
+    </label>
+    <div id="textOpts" style="display:none">
+      <label class="check"><input type="checkbox" id="keepBreaks"> 保留 PDF 原本的換行（每行各自成段）</label>
+      <label class="check"><input type="checkbox" id="pageBreaks" checked> 在每頁之間插入分頁</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>③ 開始轉換</h2>
+    <button class="primary" id="convertBtn" disabled>開始轉換</button>
+    <div id="progressBox">
+      <div class="bar"><div id="barFill"></div></div>
+      <div id="status"></div>
+    </div>
+    <div id="msg"></div>
+  </section>
+
+  <section class="card" id="result">
+    <div class="done">✅ 轉換完成！</div>
+    <a class="download" id="downloadLink" href="#">⬇ 下載 Word 檔</a>
+    <div class="previewTitle" id="previewTitle">內容預覽（前幾段）</div>
+    <div id="preview"></div>
+  </section>
+
+  <section class="card notes">
+    <h2>使用說明與限制</h2>
+    <ul>
+      <li>「版面精確（文字可編輯）」模式將文字做成獨立文字框，編輯時不會像原生段落自動重排；圖片、表格線、圖形與旋轉文字仍在背景圖中，無法逐項編輯。若需要所有物件都能像原始 Word 一樣編輯，請使用原始 Word 檔。字型需安裝在電腦中，否則 Word 可能替換字型。</li>
+      <li>「流動文字模式」只能處理含有文字的 PDF，版面會與原檔不同；掃描檔請用圖片模式（本工具不含 OCR 文字辨識）。</li>
+      <li>多欄排版、表格、複雜圖文混排，轉出後可能需要手動調整。</li>
+      <li>有密碼保護的 PDF 無法轉換，請先解除密碼。</li>
+      <li>建議使用 Chrome、Edge、Safari 等較新的瀏覽器。</li>
+    </ul>
+  </section>
+
+  <footer>Vibe Coding 作業作品 · 使用 pdf.js 與 docx 函式庫</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- 函式庫載入（多個來源自動備援）----------
+  const PDF_SOURCES = [
+    { js: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+      worker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js" },
+    { js: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js",
+      worker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js" },
+    { js: "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js",
+      worker: "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js" }
+  ];
+  const DOCX_SOURCES = [
+    "https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js",
+    "https://unpkg.com/docx@8.5.0/build/index.umd.js"
+  ];
+
+  function loadScript(url) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = url;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("無法載入 " + url));
+      document.head.appendChild(s);
+    });
+  }
+
+  let libsPromise = null;
+  // 回傳載入失敗的函式庫名稱陣列（空陣列代表全部成功）
+  function ensureLibs() {
+    if (libsPromise) return libsPromise;
+    libsPromise = (async () => {
+      const failed = [];
+      if (!window.pdfjsLib) {
+        let ok = false;
+        for (const src of PDF_SOURCES) {
+          try {
+            await loadScript(src.js);
+            if (window.pdfjsLib) {
+              pdfjsLib.GlobalWorkerOptions.workerSrc = src.worker;
+              ok = true;
+              break;
+            }
+          } catch (e) { /* 換下一個來源 */ }
+        }
+        if (!ok) failed.push("pdf.js（讀取 PDF）");
+      }
+      if (!window.docx) {
+        let ok = false;
+        for (const url of DOCX_SOURCES) {
+          try {
+            await loadScript(url);
+            if (window.docx) { ok = true; break; }
+          } catch (e) { /* 換下一個來源 */ }
+        }
+        if (!ok) failed.push("docx（產生 Word）");
+      }
+      return failed;
+    })();
+    return libsPromise;
+  }
+  ensureLibs(); // 開啟頁面時先預載
+
+  const $ = (s) => document.querySelector(s);
+  const drop = $("#drop"), fileInput = $("#fileInput"), fileInfo = $("#fileInfo");
+  const convertBtn = $("#convertBtn"), progressBox = $("#progressBox");
+  const barFill = $("#barFill"), statusEl = $("#status"), msgEl = $("#msg");
+  const resultCard = $("#result"), downloadLink = $("#downloadLink"), previewEl = $("#preview");
+  const textOpts = $("#textOpts");
+
+  let currentFile = null;
+  let downloadUrl = null;
+
+  // ---------- 小工具 ----------
+  const CJK = /[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]/;
+  const wait = () => new Promise((r) => setTimeout(r, 0));
+  const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(2) + " MB" : (n / 1024).toFixed(1) + " KB";
+  const getMode = () => document.querySelector('input[name="mode"]:checked').value;
+
+  function showMsg(text, type) {
+    msgEl.textContent = text;
+    msgEl.className = type || "";
+    msgEl.style.display = text ? "block" : "none";
+  }
+  function setProgress(p, text) {
+    barFill.style.width = Math.round(p * 100) + "%";
+    statusEl.textContent = text || "";
+  }
+  function median(arr) {
+    if (!arr.length) return 12;
+    const s = arr.slice().sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+  }
+  function joinText(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const last = a.slice(-1), first = b[0];
+    if (CJK.test(last) || CJK.test(first)) return a + b;
+    if (/\s$/.test(a) || /^\s/.test(b)) return a + b;
+    if (last === "-") return a.slice(0, -1) + b;
+    return a + " " + b;
+  }
+
+  // ---------- 檔案選擇 ----------
+  function setFile(f) {
+    showMsg("");
+    resultCard.style.display = "none";
+    if (!f) return;
+    const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+    if (!isPdf) {
+      currentFile = null;
+      convertBtn.disabled = true;
+      fileInfo<script src="app.js"></script>
