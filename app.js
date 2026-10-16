@@ -463,7 +463,6 @@
     const E = (o, k, fb) => (o && o[k] !== undefined ? o[k] : fb);
     const LINE_EXACT = E(D.LineRuleType, "EXACT", "exact");
     const HEIGHT_EXACT = E(D.HeightRule, "EXACT", "exact");
-    const ANCHOR_PAGE = E(D.FrameAnchorType, "PAGE", "page");
     const WRAP_NONE = E(D.FrameWrap, "NONE", "none");
     const H_PAGE = E(D.HorizontalPositionRelativeFrom, "PAGE", "page");
     const V_PAGE = E(D.VerticalPositionRelativeFrom, "PAGE", "page");
@@ -585,7 +584,7 @@
           position: { x: twip(xPt), y: twip(top) },
           width: twip(wPt),
           height: twip(L),
-          anchor: { horizontal: ANCHOR_PAGE, vertical: ANCHOR_PAGE },
+          anchor: { horizontal: E(D.FrameAnchorType, "PAGE", "page"), vertical: E(D.FrameAnchorType, "PAGE", "page") },
           rule: HEIGHT_EXACT,
           wrap: WRAP_NONE
         },
@@ -808,4 +807,5 @@
 
   convertBtn.addEventListener("click", convert);
 })();
+
 
