@@ -366,9 +366,9 @@
     return { data, ratio };
   }
 
-  // ---------- 精確版面原生段落模式 ----------
-  // 非文字視覺內容以整頁背景圖保留並擦除原文字；文字則用一般 Word 段落重建，
-  // 以段落縮排與段前距貼近原座標，同時保有 Word 自動換行與段落編輯能力。
+  // ---------- 精確版面模式 ----------
+  // 作法：每一行（片段）文字以「絕對定位文字框」放回原本的座標，並沿用原字型、大小、粗斜體、顏色；
+  // 圖片、線條、表格框線等非文字內容則轉成整頁背景圖（已把文字擦掉），放在文字後面。
   const EXACT_SCALE = 3; // 背景圖解析度倍率（3 = 216 dpi）
   const CJK_RE = /[　-〿㐀-鿿豈-﫿＀-￯]/;
   const CJK_FAMILIES = ["標楷體", "新細明體", "微軟正黑體", "細明體"];
@@ -463,6 +463,8 @@
     const E = (o, k, fb) => (o && o[k] !== undefined ? o[k] : fb);
     const LINE_EXACT = E(D.LineRuleType, "EXACT", "exact");
     const HEIGHT_EXACT = E(D.HeightRule, "EXACT", "exact");
+    const ANCHOR_PAGE = E(D.FrameAnchorType, "PAGE", "page");
+    const WRAP_NONE = E(D.FrameWrap, "NONE", "none");
     const H_PAGE = E(D.HorizontalPositionRelativeFrom, "PAGE", "page");
     const V_PAGE = E(D.VerticalPositionRelativeFrom, "PAGE", "page");
     const TW_NONE = E(D.TextWrappingType, "NONE", 0);
@@ -526,29 +528,82 @@
     const bgData = new Uint8Array(await blob.arrayBuffer());
     canvas.width = canvas.height = 0;
 
-    // 3) 把 PDF 的續行合併成一般 Word 段落。每段可在 Word 內正常編輯和自動換行。
-    const nativeParas = await extractPage(page, false);
-    const paragraphs = nativeParas.map((p) => {
-      const family = p.fontFamily || "Times New Roman";
-      const east = CJK_RE.test(p.text) && CJK_FAMILIES.indexOf(family) < 0 ? ctxInfo.cjkFamily : family;
-      return new D.Paragraph({
-        alignment: p.centered ? D.AlignmentType.CENTER : D.AlignmentType.LEFT,
-        indentation: p.centered ? undefined : {
-          left: twip(Math.max(0, p.leftX || p.x || 0)),
-          firstLine: twip((p.firstX || p.x || 0) - (p.leftX || p.x || 0))
+    // 3) 組成「行」→「片段」
+    items.sort((a, b) => a.y - b.y || a.x - b.x);
+    const lines = [];
+    for (const it of items) {
+      const ln = lines[lines.length - 1];
+      if (ln && Math.abs(it.y - ln.y) <= Math.max(it.size, ln.size) * 0.3) {
+        ln.items.push(it);
+        ln.size = Math.max(ln.size, it.size);
+      } else {
+        lines.push({ y: it.y, size: it.size, items: [it] });
+      }
+    }
+    const segments = [];
+    for (const ln of lines) {
+      ln.items.sort((a, b) => a.x - b.x);
+      let seg = null, prev = null;
+      for (const it of ln.items) {
+        const gap = prev ? it.x - (prev.x + prev.w) : 0;
+        if (!seg || gap > it.size * 0.9 || gap < -it.size * 0.6) {
+          seg = { items: [], x: it.x, right: it.x + it.w, ySum: 0, n: 0, size: it.size };
+          segments.push(seg);
+        } else if (gap > it.size * 0.18 && !/\s$/.test(prev.s) && !/^\s/.test(it.s)) {
+          it.pad = true; // 缺少空白字元時補一個空格
+        }
+        seg.items.push(it);
+        seg.right = Math.max(seg.right, it.x + it.w);
+        seg.ySum += it.y; seg.n++;
+        seg.size = Math.max(seg.size, it.size);
+        prev = it;
+      }
+    }
+
+    // 4) 每個片段建立一個絕對定位的文字框
+    const frames = [];
+    for (const seg of segments) {
+      if (!seg.items.some((i) => !i.blank)) continue;
+      const runs = [];
+      let last = null;
+      for (const it of seg.items) {
+        const text = (it.pad ? " " : "") + it.s;
+        const key = [it.fi.family, it.fi.bold, it.fi.italic, Math.round(it.size * 2), it.color, it.underline].join("|");
+        if (last && last.key === key) { last.text += text; continue; }
+        last = { key: key, text: text, it: it };
+        runs.push(last);
+      }
+      const L = Math.ceil(seg.size * 1.25 * 2) / 2;           // 行高（pt）
+      const base = seg.ySum / seg.n;
+      const top = base - (L - seg.size * 0.2);
+      const xPt = Math.max(0, seg.x);
+      const wPt = Math.max(6, Math.min(W - xPt, seg.right - seg.x + Math.max(24, seg.size * 2)));
+      frames.push(new D.Paragraph({
+        spacing: { before: 0, after: 0, line: twip(L), lineRule: LINE_EXACT },
+        frame: {
+          type: "absolute",
+          position: { x: twip(xPt), y: twip(top) },
+          width: twip(wPt),
+          height: twip(L),
+          anchor: { horizontal: ANCHOR_PAGE, vertical: ANCHOR_PAGE },
+          rule: HEIGHT_EXACT,
+          wrap: WRAP_NONE
         },
-        spacing: {
-          before: twip(p.beforePt || 0), after: 0,
-          line: twip(Math.max(8, p.size * 1.3)), lineRule: LINE_EXACT
-        },
-        children: [new D.TextRun({
-          text: p.text,
-          font: { ascii: family, hAnsi: family, eastAsia: east, cs: family },
-          size: Math.round(p.size * 2),
-          bold: p.heading
-        })]
-      });
-    });
+        children: runs.map((r) => {
+          const fam = r.it.fi.family;
+          const east = CJK_RE.test(r.text) && CJK_FAMILIES.indexOf(fam) < 0 ? ctxInfo.cjkFamily : fam;
+          return new D.TextRun({
+            text: r.text,
+            font: { ascii: fam, hAnsi: fam, eastAsia: east, cs: fam },
+            size: Math.round(r.it.size * 2),
+            bold: r.it.fi.bold,
+            italics: r.it.fi.italic,
+            color: r.it.color,
+            underline: r.it.underline ? {} : undefined
+          });
+        })
+      }));
+    }
 
     // 5) 背景圖：放在最後一個一般段落內，並設為「文字後方」的浮動圖片
     const anchor = new D.Paragraph({
@@ -569,7 +624,7 @@
 
     const landscape = W > H;
     return {
-      paragraphCount: paragraphs.length,
+      frameCount: frames.length,
       section: {
         properties: {
           page: {
@@ -580,7 +635,7 @@
             margin: { top: 0, right: 0, bottom: 0, left: 0, header: 0, footer: 0, gutter: 0 }
           }
         },
-        children: [anchor].concat(paragraphs)
+        children: frames.concat([anchor])
       }
     };
   }
@@ -622,19 +677,19 @@
       if (mode === "exact") {
         const sections = [];
         const ctxInfo = { fontCache: {}, cjkFamily: "新細明體" };
-        let paragraphTotal = 0;
+        let frameTotal = 0;
         for (let i = 1; i <= total; i++) {
           setProgress((i - 1) / total, "還原版面：第 " + i + " / " + total + " 頁");
           const page = await pdf.getPage(i);
           const res = await buildExactSection(page, ctxInfo);
           sections.push(res.section);
-          paragraphTotal += res.paragraphCount;
+          frameTotal += res.frameCount;
           await wait();
         }
         setProgress(0.95, "建立 Word 檔案…");
         doc = new Document({ creator: "PDF 轉 Word 小工具", sections: sections });
-        previewHtml = "<p>版面精確原生段落模式：共處理 " + total + " 頁、建立 " + paragraphTotal +
-          " 個可自動換行的 Word 段落。頁面圖形與表格線保留在背景；文字可像一般段落編輯。</p>";
+        previewHtml = "<p>精確版面模式：共還原 " + total + " 頁、" + frameTotal +
+          " 個文字區塊。文字可在 Word 中直接點選修改；圖片、表格框線、圖形與旋轉文字則保留在背景圖中。</p>";
       } else if (mode === "text") {
         const pages = [];
         let chars = 0;
